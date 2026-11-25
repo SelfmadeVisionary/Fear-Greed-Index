@@ -1,0 +1,46 @@
+name: Daily CNN Fear & Greed
+
+on:
+  schedule:
+    - cron: '30 21 * * 1-5'  # 21:30 UTC weekdays (\~4:30 PM ET)
+  workflow_dispatch:
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch & post Fear & Greed
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          DATA=$(curl -s -H "User-Agent: Mozilla/5.0" -H "Referer: https://edition.cnn.com/" \
+            "https://production.dataviz.cnn.io/index/fearandgreed/graphdata")
+          
+          SCORE=$(echo "$DATA" | jq -r '.fear_and_greed.score | floor')
+          RATING=$(echo "$DATA" | jq -r '.fear_and_greed.rating')
+          PREV=$(echo "$DATA" | jq -r '.fear_and_greed.previous_close | floor')
+          WEEK=$(echo "$DATA" | jq -r '.fear_and_greed.previous_1_week | floor')
+          MONTH=$(echo "$DATA" | jq -r '.fear_and_greed.previous_1_month | floor')
+          
+          COLOR=16711680
+          case "$RATING" in
+            "extreme fear") COLOR=16711680 ;;
+            "fear") COLOR=16744448 ;;
+            "neutral") COLOR=16776960 ;;
+            "greed") COLOR=65280 ;;
+            "extreme greed") COLOR=32768 ;;
+          esac
+          
+          jq -n \
+            --arg title "CNN Fear & Greed: $SCORE ($RATING)" \
+            --arg desc "Previous close: $PREV\n1 week ago: $WEEK\n1 month ago: $MONTH\n\n[View on CNN](https://edition.cnn.com/markets/fear-and-greed)" \
+            --argjson color "$COLOR" \
+            '{
+              embeds: [{
+                title: $title,
+                description: $desc,
+                color: $color,
+                footer: { text: "Source: CNN Business" },
+                timestamp: (now | todate)
+              }]
+            }' | curl -s -H "Content-Type: application/json" -d @- "$WEBHOOK"
